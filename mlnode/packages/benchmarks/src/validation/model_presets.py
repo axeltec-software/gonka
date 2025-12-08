@@ -2,9 +2,19 @@ from validation.data import ModelPreset
 
 
 QWEN25_7B_INT8 = ModelPreset(
-    model='RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a16',
+    model='/home/models/RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a16',
     precision='int8',
-    dtype='float16',
+    dtype='auto',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+    ],
+)
+
+QWEN25_7B_AWQ = ModelPreset(
+    model='/home/models/Qwen/Qwen2.5-7B-Instruct-AWQ',
+    precision='int4',
+    dtype='auto',
     additional_args=[
         '--enable-auto-tool-choice',
         '--tool-call-parser', 'hermes',

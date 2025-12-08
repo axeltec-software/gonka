@@ -48,20 +48,21 @@ def run_validation(
         return executor.submit(generate_and_validate, arg)
 
     max_task_attempts = max(1, request_params.retries_max_attempts)
-
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {submit_one(executor, arg): (arg, 1) for arg in args}
         for future in tqdm(as_completed(futures), total=len(futures), desc="Running validation", leave=False, smoothing=0):
             arg, attempt = futures.pop(future)
             try:
-                results.append(future.result())
+                result = future.result()
+                results.append(result)
             except Exception as e:
+                print(e)
                 if attempt < max_task_attempts:
                     # resubmit with incremented attempt
                     logger.error(f"Task failed (attempt {attempt}/{max_task_attempts}), retrying: {e}")
                     new_future = submit_one(executor, arg, attempt + 1)
                     futures[new_future] = (arg, attempt + 1)
                 else:
-                    logger.error(f"Task permanently failed after {attempt} attempts: {e}")
+                    logger.error(f"Task permanently failed after {attempt} attempts: ") #{e}
 
     return results

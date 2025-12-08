@@ -16,13 +16,13 @@ from validation.prompts import preload_all_language_prompts, slice_mixed_languag
 from validation.data import ModelInfo, RequestParams, ServerConfig, RunParams, InferenceValidationRun
 from validation.model_presets import QWEN3_30B_INT4, QWEN3_30B_FP8
 from validation.model_presets import GEMMA_3_27B_INT4, GEMMA_3_27B_FP8
+from validation.model_presets import QWEN25_7B_AWQ, QWEN25_7B_INT8
 
-
-N_PROMPTS = 1000
+N_PROMPTS = 10
 MAX_WORKERS = None
 run_params_high_temp = RunParams(
     exp_name='gemma27B',
-    output_path='../data/inference_results',
+    output_path='data/inference_results',
     n_prompts=N_PROMPTS,
     timeout=1800,
     tokenizer_model_name='unsloth/llama-3-8b-Instruct',
@@ -69,10 +69,13 @@ server_4x3090_2 = ServerConfig(
     gpu='4x3090',
 )
 
-honest_preset = GEMMA_3_27B_FP8
-fraudulent_preset = GEMMA_3_27B_INT4
+# honest_preset = GEMMA_3_27B_FP8
+# fraudulent_preset = GEMMA_3_27B_INT4
+honest_preset = QWEN25_7B_INT8
+fraudulent_preset = QWEN25_7B_INT8 #QWEN25_7B_AWQ
 
-langs = ("en", "sp","ch", "hi", "ar")
+# langs = ("en", "sp","ch", "hi", "ar")
+langs = ("en",)
 runs = [
     # Honest FP8 on 1xH100 vs FP8 on 1xH100
     InferenceValidationRun(
@@ -85,55 +88,55 @@ runs = [
         max_workers=MAX_WORKERS,
     ),
     # Fradulent INT4 on 1xH100 vs FP8 on 1xH100
-    InferenceValidationRun(
-        model_inference=fraudulent_preset,
-        model_validation=honest_preset,
-        server_inference=server_1xH100_2,
-        server_validation=server_1xH100_1,
-        run_inference=get_run_params(0.7, N_PROMPTS//5),
-        run_validation=get_run_params(0.7, N_PROMPTS//5),
-        max_workers=MAX_WORKERS,
-    ),
-    # Fradulent INT4 on 4x3090 vs FP8 on 1xH100
-    InferenceValidationRun(
-        model_inference=fraudulent_preset,
-        model_validation=honest_preset,
-        server_inference=server_4x3090_2,
-        server_validation=server_1xH100_1,
-        run_inference=get_run_params(0.7, N_PROMPTS//5),
-        run_validation=get_run_params(0.7, N_PROMPTS//5),
-        max_workers=MAX_WORKERS,
-    ),
-    # Fradulent INT4 on 4x3090 vs FP8 on 4x3090
-    InferenceValidationRun(
-        model_inference=fraudulent_preset,
-        model_validation=honest_preset,
-        server_inference=server_4x3090_2,
-        server_validation=server_4x3090_1,
-        run_inference=get_run_params(0.7, N_PROMPTS//5),
-        run_validation=get_run_params(0.7, N_PROMPTS//5),
-        max_workers=MAX_WORKERS,
-    ),
-    # Honest FP8 on 4x3090 vs FP8 on 1xH100
-    InferenceValidationRun(
-        model_inference=honest_preset,
-        model_validation=honest_preset,
-        server_inference=server_4x3090_1,
-        server_validation=server_1xH100_1,
-        run_inference=get_run_params(0.99, N_PROMPTS//5),
-        run_validation=get_run_params(0.99, N_PROMPTS//5),
-        max_workers=MAX_WORKERS,
-    ),
-    # Honest FP8 on 4x3090 vs FP8 on 4x3090
-    InferenceValidationRun(
-        model_inference=honest_preset,
-        model_validation=honest_preset,
-        server_inference=server_4x3090_1,
-        server_validation=server_4x3090_2,
-        run_inference=get_run_params(0.99, N_PROMPTS//5),
-        run_validation=get_run_params(0.99, N_PROMPTS//5),
-        max_workers=MAX_WORKERS,
-    ),
+    # InferenceValidationRun(
+    #     model_inference=fraudulent_preset,
+    #     model_validation=honest_preset,
+    #     server_inference=server_1xH100_2,
+    #     server_validation=server_1xH100_1,
+    #     run_inference=get_run_params(0.7, N_PROMPTS//5),
+    #     run_validation=get_run_params(0.7, N_PROMPTS//5),
+    #     max_workers=MAX_WORKERS,
+    # ),
+    # # Fradulent INT4 on 4x3090 vs FP8 on 1xH100
+    # InferenceValidationRun(
+    #     model_inference=fraudulent_preset,
+    #     model_validation=honest_preset,
+    #     server_inference=server_4x3090_2,
+    #     server_validation=server_1xH100_1,
+    #     run_inference=get_run_params(0.7, N_PROMPTS//5),
+    #     run_validation=get_run_params(0.7, N_PROMPTS//5),
+    #     max_workers=MAX_WORKERS,
+    # ),
+    # # Fradulent INT4 on 4x3090 vs FP8 on 4x3090
+    # InferenceValidationRun(
+    #     model_inference=fraudulent_preset,
+    #     model_validation=honest_preset,
+    #     server_inference=server_4x3090_2,
+    #     server_validation=server_4x3090_1,
+    #     run_inference=get_run_params(0.7, N_PROMPTS//5),
+    #     run_validation=get_run_params(0.7, N_PROMPTS//5),
+    #     max_workers=MAX_WORKERS,
+    # ),
+    # # Honest FP8 on 4x3090 vs FP8 on 1xH100
+    # InferenceValidationRun(
+    #     model_inference=honest_preset,
+    #     model_validation=honest_preset,
+    #     server_inference=server_4x3090_1,
+    #     server_validation=server_1xH100_1,
+    #     run_inference=get_run_params(0.99, N_PROMPTS//5),
+    #     run_validation=get_run_params(0.99, N_PROMPTS//5),
+    #     max_workers=MAX_WORKERS,
+    # ),
+    # # Honest FP8 on 4x3090 vs FP8 on 4x3090
+    # InferenceValidationRun(
+    #     model_inference=honest_preset,
+    #     model_validation=honest_preset,
+    #     server_inference=server_4x3090_1,
+    #     server_validation=server_4x3090_2,
+    #     run_inference=get_run_params(0.99, N_PROMPTS//5),
+    #     run_validation=get_run_params(0.99, N_PROMPTS//5),
+    #     max_workers=MAX_WORKERS,
+    # ),
 ]
 
 
@@ -146,32 +149,33 @@ def post_up(server: ServerConfig, payload, timeout: int):
 def main():
     dataset = preload_all_language_prompts(langs=langs)
     for cfg in runs:
-        tokenizer_model_name = cfg.run_inference.tokenizer_model_name
-        _ = AutoTokenizer.from_pretrained(tokenizer_model_name)
+        # tokenizer_model_name = cfg.run_inference.tokenizer_model_name
+        # _ = AutoTokenizer.from_pretrained(tokenizer_model_name)
 
-        os.makedirs(cfg.run_inference.output_path, exist_ok=True)
+        # os.makedirs(cfg.run_inference.output_path, exist_ok=True)
 
-        inference_payload = cfg.model_inference.to_deploy_payload()
-        validation_payload = cfg.model_validation.to_deploy_payload()
-        up_requests = [
-            (cfg.server_inference, inference_payload),
-            (cfg.server_validation, validation_payload),
-        ]
-        print(up_requests)
-        with ThreadPoolExecutor(max_workers=len(up_requests)) as executor:
-            futures = [
-                executor.submit(post_up, srv, payload, cfg.run_inference.timeout)
-                for srv, payload in up_requests
-            ]
-            for future in futures:
-                _, response = future.result()
-                print(response.status_code)
-                print(response.text)
+        # inference_payload = cfg.model_inference.to_deploy_payload()
+        # validation_payload = cfg.model_validation.to_deploy_payload()
+        # up_requests = [
+        #     (cfg.server_inference, inference_payload),
+        #     (cfg.server_validation, validation_payload),
+        # ]
+        # print(up_requests)
+        # with ThreadPoolExecutor(max_workers=len(up_requests)) as executor:
+        #     futures = [
+        #         executor.submit(post_up, srv, payload, cfg.run_inference.timeout)
+        #         for srv, payload in up_requests
+        #     ]
+        #     for future in futures:
+        #         _, response = future.result()
+        #         print(response.status_code)
+        #         print(response.text)
 
-        sleep(5)
+        # sleep(5)
 
         inference_model_info = ModelInfo(
-            url=cfg.server_inference.inference_url(),
+            # url=cfg.server_inference.inference_url(),
+            url="http://0.0.0.0:8000",
             name=cfg.model_inference.model,
             deploy_params={
                 "GPU": cfg.server_inference.gpu,
@@ -180,14 +184,15 @@ def main():
         )
 
         validation_model_info = ModelInfo(
-            url=cfg.server_validation.inference_url(),
+            # url=cfg.server_validation.inference_url(),
+            url="http://0.0.0.0:8000",
             name=cfg.model_validation.model,
             deploy_params={
                 "GPU": cfg.server_validation.gpu,
                 "precision": cfg.model_validation.precision,
             },
         )
-
+        os.makedirs(cfg.run_inference.output_path, exist_ok=True)
         request_params = cfg.run_inference.request
         setting_name = cfg.setting_filename()
         data_path = f"{cfg.run_inference.output_path}/{setting_name}"

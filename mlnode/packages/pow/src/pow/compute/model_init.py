@@ -64,27 +64,23 @@ class ModelWrapper(torch.nn.Module):
             )
 
             logger.info("Creating model...")
-            with torch.device("meta"):
-                model = Transformer(model_args)
-            model.to_empty(device="cpu")
+            # Set dtype BEFORE creating model so meta tensors are created in target dtype
+            old_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(dtype)
+            try:
+                with torch.device("meta"):
+                    model = Transformer(model_args)
+                # Load directly to GPU - tensors are already in target dtype (float16 = 36GB)
+                model.to_empty(device=str(primary_device))
+            finally:
+                torch.set_default_dtype(old_dtype)
             logger.info(f"Loaded in {time.time() - start_time:.2f} seconds")
 
             model.eval()
             model.requires_grad_(False)
-            
-            # Convert model to specified dtype before moving to GPUs
-            if dtype == torch.float16:
-                model = model.half()
-                logger.info("Model converted to float16")
-            elif dtype == torch.bfloat16:
-                model = model.bfloat16()
-                logger.info("Model converted to bfloat16")
-            elif dtype == torch.float32:
-                model = model.float()
-                logger.info("Model converted to float32")
 
-            initialize_model_with_pool(model, str(hash_), dtype=dtype, pool_fraction=0.05)
-            # Recompute freqs_cis after model is on CPU and properly initialized
+            initialize_model_with_pool(model, str(hash_), dtype=dtype, pool_fraction=0.05, device=primary_device)
+            # Recompute freqs_cis after model is on GPU and properly initialized
             model.recompute_freqs_cis()
 
             init_time = time.time() - start_time

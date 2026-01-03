@@ -9,18 +9,20 @@ def initialize_model_with_pool(
     hash_: str,
     dtype: torch.dtype = torch.float16,
     pool_fraction: float = 0.01,
+    device: torch.device = None,
 ) -> None:
     """Fast deterministic model initialization for PoC scenarios (target: <30s for 18B models).
-    
+
     Optimized reimplementation of `initialize_model_weights_from_rng` that generates a small
     pool of random values and uses deterministic patterns to fill all model weights.
     Avoids generating billions of random numbers by reusing a small pool with tiling.
 
     Args:
-        model: The PyTorch model to initialize (CPU-only).
+        model: The PyTorch model to initialize.
         hash_: Hash string used for deterministic initialization.
         dtype: The target data type for the model's parameters.
         pool_fraction: The fraction of total parameters to generate for the random pool.
+        device: The device to use for the random pool tensor (defaults to CPU).
     """
     rng = get_rng(hash_, 4)
     
@@ -30,10 +32,12 @@ def initialize_model_with_pool(
         param_info.append((name, param, param.numel()))
         total_params += param.numel()
 
-    # Create a small pool of random values on the CPU.
+    # Create a small pool of random values and move to target device.
     pool_size = max(50000, int(total_params * pool_fraction))
     pool_values = rng.normal(0.0, 0.02, size=pool_size).astype(np.float32)
     pool_tensor = torch.from_numpy(pool_values).to(dtype=dtype)
+    if device is not None:
+        pool_tensor = pool_tensor.to(device=device)
 
     with torch.no_grad():
         for name, param, param_size in tqdm(param_info, desc="Fast Model Initialization"):

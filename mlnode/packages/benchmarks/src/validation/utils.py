@@ -22,6 +22,7 @@ from validation.data import (
     Result,
     PositionResult
 )
+from datetime import datetime
 
 from common.logger import create_logger
 
@@ -185,9 +186,11 @@ def generate_and_validate(
     # except Exception as e:
     #     print(f"Failed to write to file: {e}")
     #     exit(1)
-    prompt_len = inference_resp["usage"]["prompt_tokens"]
+    
     inference_result = _extract_logprobs(inference_resp)
     enforced_tokens = _extract_enforced_tokens(inference_resp)
+    
+    time_before_val = datetime.now()
     validation_resp = validation(
         experiment_request.validation_model,
         experiment_request.request_params,
@@ -196,9 +199,11 @@ def generate_and_validate(
         enforced_tokens=enforced_tokens
     )
     #validation_result = _extract_logprobs(validation_resp)
+    prompt_len = inference_resp["usage"]["prompt_tokens"]
     validation_result = _extract_prompt_logprobs(validation_resp, prompt_len)
     inference_tok_ids = [el['token'] for el in inference_resp["choices"][0]["logprobs"]["content"]]
     validation_tok_ids = [list(el.keys())[0] for el in validation_resp["prompt_logprobs"][prompt_len:]]
+
     #if validation_result.text != inference_result.text:
     if inference_tok_ids != validation_tok_ids:
         print(
@@ -209,6 +214,18 @@ def generate_and_validate(
             f"{'-'*100}"
         )
         exit(-1)
+
+    time_after_val = datetime.now()
+
+    duration_val = time_after_val - time_before_val
+    
+    try:
+        file_name = "/home/irene/projects/infer_val/gonka_latest/gonka/mlnode/packages/benchmarks/notebooks/benchmark_val_new.txt"
+        with open(file=file_name, mode="a") as f:
+            f.write(f"{duration_val.total_seconds() * 1000}\n")
+    except Exception as e:
+        print(f"Failed to write to file: {e}")
+        exit(1)
 
     return experiment_request.to_result(
         inference_result,

@@ -77,6 +77,7 @@ def inference(
         "top_logprobs": request_params.top_logprobs,
         "skip_special_tokens": False,
         "repetition_penalty": 1.2,
+        "return_tokens_as_token_ids": True,
     }
     
     response = requests.post(url, json=payload)
@@ -96,12 +97,13 @@ def validation(
     payload = {
         "model": model_info.name,
         "messages": _prepare_messages(prompt),
-        "max_tokens": request_params.max_tokens,
+        "max_tokens": 1,
         "temperature": request_params.temperature,
         "seed": request_params.seed,
         "stream": False,
         "logprobs": True,
         "top_logprobs": request_params.top_logprobs,
+        "prompt_logprobs": request_params.top_logprobs,
         "n": 1,
         "skip_special_tokens": False,
         "repetition_penalty": 1.2,
@@ -133,6 +135,37 @@ def _extract_logprobs(resp) -> Result:
     return Result(text=text, results=results)
 
 
+def _extract_prompt_logprobs(resp, prompt_len) -> Result:
+    logprobs_val = resp["prompt_logprobs"][prompt_len:]
+    val_data = []
+    token_ids = []
+    for el in logprobs_val:
+        top_logprobs = []
+        for token_id, info in el.items():
+            top_logprobs.append({
+                    "token": token_id,
+                    "logprob": info["logprob"],
+                    "rank": info["rank"],
+                    "decoded_token": info["decoded_token"]
+                })
+
+        pos = top_logprobs[0]
+        token_ids.append(int(pos["token"]))
+        pos["top_logprobs"] = top_logprobs
+        val_data.append(pos)
+
+    results = []
+    for position in val_data:
+        res = PositionResult(
+            token=position["token"],
+            logprobs={logprob["token"]: logprob["logprob"] for logprob in position["top_logprobs"]}
+        )
+        results.append(res)
+
+    return Result(text="", results=results)
+
+
+
 def _extract_enforced_tokens(resp) -> EnforcedTokens:
     return EnforcedTokens.from_content(resp["choices"][0]["logprobs"]["content"])
 
@@ -145,6 +178,14 @@ def generate_and_validate(
         experiment_request.request_params,
         experiment_request.prompt,
     )
+    # try:
+    #     with open(file="infer_resp.json", mode="w") as f:
+    #         json.dump(inference_resp, f)
+    #     exit(0)
+    # except Exception as e:
+    #     print(f"Failed to write to file: {e}")
+    #     exit(1)
+    prompt_len = inference_resp["usage"]["prompt_tokens"]
     inference_result = _extract_logprobs(inference_resp)
     enforced_tokens = _extract_enforced_tokens(inference_resp)
     validation_resp = validation(
@@ -154,13 +195,17 @@ def generate_and_validate(
         # enforced_str=inference_result.text,
         enforced_tokens=enforced_tokens
     )
-    validation_result = _extract_logprobs(validation_resp)
-    if validation_result.text != inference_result.text:
+    #validation_result = _extract_logprobs(validation_resp)
+    validation_result = _extract_prompt_logprobs(validation_resp, prompt_len)
+    inference_tok_ids = [el['token'] for el in inference_resp["choices"][0]["logprobs"]["content"]]
+    validation_tok_ids = [list(el.keys())[0] for el in validation_resp["prompt_logprobs"][prompt_len:]]
+    #if validation_result.text != inference_result.text:
+    if inference_tok_ids != validation_tok_ids:
         print(
-            f"text sequences don't match\n" +
-            f"inference:\n {inference_result.text}\n" +
+            f"token id sequences don't match\n" +
+            f"inference:\n {inference_tok_ids}\n" +
             f"{'-'*10}\n" +
-            f"validation:\n {validation_result.text}\n" +
+            f"validation:\n {validation_tok_ids}\n" +
             f"{'-'*100}"
         )
         exit(-1)

@@ -69,13 +69,10 @@ server_4x3090_2 = ServerConfig(
     gpu='4x3090',
 )
 
-# honest_preset = GEMMA_3_27B_FP8
-# fraudulent_preset = GEMMA_3_27B_INT4
 honest_preset = QWEN25_7B_INT8
-fraudulent_preset = QWEN25_7B_INT8 #QWEN25_7B_AWQ
+fraudulent_preset = QWEN25_7B_INT8
 
-# langs = ("en", "sp","ch", "hi", "ar")
-langs = ("en",)
+langs = ("en", "sp","ch", "hi", "ar")
 runs = [
     # Honest FP8 on 1xH100 vs FP8 on 1xH100
     InferenceValidationRun(
@@ -174,8 +171,7 @@ def main():
         # sleep(5)
 
         inference_model_info = ModelInfo(
-            # url=cfg.server_inference.inference_url(),
-            url="http://0.0.0.0:8000",
+            url=cfg.server_inference.inference_url(),
             name=cfg.model_inference.model,
             deploy_params={
                 "GPU": cfg.server_inference.gpu,
@@ -184,8 +180,7 @@ def main():
         )
 
         validation_model_info = ModelInfo(
-            # url=cfg.server_validation.inference_url(),
-            url="http://0.0.0.0:8000",
+            url=cfg.server_validation.inference_url(),
             name=cfg.model_validation.model,
             deploy_params={
                 "GPU": cfg.server_validation.gpu,

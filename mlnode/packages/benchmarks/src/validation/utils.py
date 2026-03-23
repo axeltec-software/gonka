@@ -1,3 +1,5 @@
+import json
+
 import requests
 import math
 import threading
@@ -125,6 +127,7 @@ def validation(
         "stream": False,
         "logprobs": True,
         "top_logprobs": request_params.top_logprobs,
+        #"prompt_logprobs": request_params.top_logprobs,
         "n": 1,
         "skip_special_tokens": False,
         "repetition_penalty": 1.2,
@@ -155,6 +158,36 @@ def _extract_logprobs(resp) -> Result:
         results.append(res)
 
     return Result(text=text, results=results)
+
+
+def _extract_prompt_logprobs(resp, prompt_len) -> Result:
+    logprobs_val = resp["prompt_logprobs"][prompt_len:]
+    val_data = []
+    token_ids = []
+    for el in logprobs_val:
+        top_logprobs = []
+        for token_id, info in el.items():
+            top_logprobs.append({
+                    "token": token_id,
+                    "logprob": info["logprob"],
+                    "rank": info["rank"],
+                    "decoded_token": info["decoded_token"]
+                })
+
+        pos = top_logprobs[0]
+        token_ids.append(int(pos["token"]))
+        pos["top_logprobs"] = top_logprobs
+        val_data.append(pos)
+
+    results = []
+    for position in val_data:
+        res = PositionResult(
+            token=position["token"],
+            logprobs={logprob["token"]: logprob["logprob"] for logprob in position["top_logprobs"]}
+        )
+        results.append(res)
+
+    return Result(text="", results=results)
 
 
 def _extract_enforced_tokens(resp) -> EnforcedTokens:
@@ -317,13 +350,28 @@ def format_token_logprobs_differences(result1: Result, result2: Result, label1: 
 def generate_and_validate(
     experiment_request: ExperimentRequest
 ) -> ValidationItem:
+    # comment this part for validation with a single request
+    # ================================
     inference_resp = inference(
-        experiment_request.inference_model,
-        experiment_request.request_params,
-        experiment_request.prompt,
+         experiment_request.inference_model,
+         experiment_request.request_params,
+         experiment_request.prompt,
     )
+    # try:
+    #     with open(file="infer_resp.json", mode="w") as f:
+    #         json.dump(inference_resp, f)
+    #     exit(0)
+    # except Exception as e:
+    #     print(f"Failed to write to file: {e}")
+    #     exit(1)
+    # ================================
+
+    # with open(file="infer_resp.json", mode="r") as f:
+    #     inference_resp = json.load(f)
+
     inference_result = _extract_logprobs(inference_resp)
     enforced_tokens = _extract_enforced_tokens(inference_resp)
+
     validation_resp = validation(
         experiment_request.validation_model,
         experiment_request.request_params,
@@ -331,47 +379,72 @@ def generate_and_validate(
         # enforced_str=inference_result.text,
         enforced_tokens=enforced_tokens
     )
-    validation_result = _extract_logprobs(validation_resp)
-    if validation_result.text != inference_result.text:
-        diff_report = format_text_differences(
-            inference_result.text, 
-            validation_result.text,
-            label1="inference",
-            label2="validation"
-        )
-        
-        token_diff_report = format_token_logprobs_differences(
-            inference_result,
-            validation_result,
-            label1="inference",
-            label2="validation"
-        )
 
-        if experiment_request.output_path:
-            diff_file_path = experiment_request.output_path.replace('.jsonl', '_diff.txt')
-            lock = _get_lock_for_path(diff_file_path)
-            with lock:
-                try:
-                    with open(diff_file_path, 'a') as f:
-                        f.write(f"\n{'='*100}\n")
-                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write(f"Prompt: {experiment_request.prompt[:100]}...\n")
-                        f.write(f"\n{diff_report}\n")
-                        f.write(f"\n{token_diff_report}\n")
-                        f.write(f"\nFull inference text: {repr(inference_result.text)}\n")
-                        f.write(f"Full validation text: {repr(validation_result.text)}\n")
-                        f.write(f"{'='*100}\n\n")
-                    logger.info(f"Diff report saved to {diff_file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to write diff report to {diff_file_path}: {e}")
-        
+    # try:
+    #     with open(file="val_resp.json", mode="w") as f:
+    #         json.dump(validation_resp, f)
+    #         #exit(0)
+    # except Exception as e:
+    #     print(f"Failed to write to file: {e}")
+    #     exit(1)
+    prompt_len = inference_resp["usage"]["prompt_tokens"]
+    validation_result = _extract_prompt_logprobs(validation_resp, prompt_len)
+    #validation_result = _extract_logprobs(validation_resp)
+
+    #print(f"Validation text length = {len(validation_result.text)}, inference text length = {len(inference_result.text)}")
+    #if validation_result.text != inference_result.text:
+    inference_tok_ids = [el['token'] for el in inference_resp["choices"][0]["logprobs"]["content"]]
+    validation_tok_ids = [list(el.keys())[0] for el in validation_resp["prompt_logprobs"][prompt_len:]]
+    if inference_tok_ids != validation_tok_ids:
         raise RuntimeError(
-            f"Text sequences don't match between inference and validation.\n"
-            f"{diff_report}\n"
-            f"{token_diff_report}\n"
-            f"Full inference text: {repr(inference_result.text)}\n"
-            f"Full validation text: {repr(validation_result.text)}"
-        )
+            f"token id sequences don't match\n" +
+            f"inference:\n {inference_tok_ids}\n" +
+            f"{'-'*10}\n" +
+            f"validation:\n {validation_tok_ids}\n" +
+            f"{'-'*100}"
+            )
+    
+        # diff_report = format_text_differences(
+        #     inference_result.text, 
+        #     validation_result.text,
+        #     label1="inference",
+        #     label2="validation"
+        # )
+        
+        # token_diff_report = format_token_logprobs_differences(
+        #     inference_result,
+        #     validation_result,
+        #     label1="inference",
+        #     label2="validation"
+        # )
+
+        # if experiment_request.output_path:
+        #     diff_file_path = experiment_request.output_path.replace('.jsonl', '_diff.txt')
+        #     lock = _get_lock_for_path(diff_file_path)
+        #     with lock:
+        #         try:
+        #             with open(diff_file_path, 'a') as f:
+        #                 f.write(f"\n{'='*100}\n")
+        #                 f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        #                 f.write(f"Prompt: {experiment_request.prompt[:100]}...\n")
+        #                 f.write(f"\n{diff_report}\n")
+        #                 f.write(f"\n{token_diff_report}\n")
+        #                 f.write(f"\nFull inference text: {repr(inference_result.text)}\n")
+        #                 f.write(f"Full validation text: {repr(validation_result.text)}\n")
+        #                 f.write(f"{'='*100}\n\n")
+        #             logger.info(f"Diff report saved to {diff_file_path}")
+        #         except Exception as e:
+        #             logger.error(f"Failed to write diff report to {diff_file_path}: {e}")
+        
+        # raise RuntimeError(
+        #     f"Text sequences don't match between inference and validation.\n"
+        #     #f"{diff_report}\n"
+        #     #f"{token_diff_report}\n"
+        #     f"Full inference text: {repr(inference_result.text)}\n"
+        #     f"Full validation text: {repr(validation_result.text)}\n"
+        #     f"Inference result: {[el['token'] for el in inference_resp["choices"][0]["logprobs"]["content"]]}\n"
+        #     f"Validation result: {[list(el.keys())[0] for el in validation_resp["prompt_logprobs"][prompt_len:]]}\n"
+        # )
 
     item = experiment_request.to_result(
         inference_result,

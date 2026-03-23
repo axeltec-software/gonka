@@ -11,6 +11,48 @@ QWEN25_7B_INT8 = ModelPreset(
     ],
 )
 
+QWEN3_600M_FP16 = ModelPreset(
+    model='Qwen/Qwen3-0.6B',
+    precision='fp16',
+    dtype='auto',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+    ],
+)
+
+QWEN3_600M_FP8 = ModelPreset(
+    model='Qwen/Qwen3-0.6B-FP8',
+    precision='fp8',
+    dtype='auto',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+    ],
+)
+
+QWQ_32B_INT4 = ModelPreset(
+    model='Qwen/QwQ-32B-AWQ',
+    precision='int4',
+    dtype='auto'
+)
+
+QWQ_32B_FP8 = ModelPreset(
+    model='RedHatAI/QwQ-32B-FP8-dynamic',
+    precision='fp8',
+    dtype='auto'
+)
+
+QWEN2_1500M_FP8 = ModelPreset(
+    model='Qwen/Qwen2-1.5B-Instruct',
+    precision='fp8',
+    dtype='auto',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+    ],
+)
+
 QWEN25_7B_AWQ = ModelPreset(
     model='/home/models/Qwen/Qwen2.5-7B-Instruct-AWQ',
     precision='int4',

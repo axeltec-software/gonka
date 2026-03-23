@@ -2,7 +2,7 @@ from validation.data import ModelPreset
 
 
 QWEN25_7B_INT8 = ModelPreset(
-    model='/home/models/RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a16',
+    model='RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a16',
     precision='int8',
     dtype='auto',
     additional_args=[
@@ -12,7 +12,7 @@ QWEN25_7B_INT8 = ModelPreset(
 )
 
 QWEN25_7B_AWQ = ModelPreset(
-    model='/home/models/Qwen/Qwen2.5-7B-Instruct-AWQ',
+    model='Qwen/Qwen2.5-7B-Instruct-AWQ',
     precision='int4',
     dtype='auto',
     additional_args=[
@@ -118,6 +118,28 @@ QWEN3_235B_FP8 = ModelPreset(
 
 QWEN3_235B_INT4 = ModelPreset(
     model='chriswritescode/Qwen3-235B-A22B-Instruct-2507-INT4-W4A16',
+    precision='int4',
+    dtype='float16',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+        '--max_model_len', '240000',
+    ],
+)
+
+QWQ_32B_FP8 = ModelPreset(
+    model='RedHatAI/QwQ-32B-FP8-dynamic',
+    precision='fp8',
+    dtype='float16',
+    additional_args=[
+        '--enable-auto-tool-choice',
+        '--tool-call-parser', 'hermes',
+        '--max_model_len', '240000',
+    ],
+)
+
+QWQ_32B_INT4 = ModelPreset(
+    model='Qwen/QwQ-32B-AWQ',
     precision='int4',
     dtype='float16',
     additional_args=[

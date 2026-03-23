@@ -109,6 +109,46 @@ def load_from_jsonl(
     return results
 
 
+class InferenceSnapshot(BaseModel):
+    """Intermediate output of the inference step, sufficient to run validation later."""
+    prompt: str
+    language: Optional[str] = None
+    inference_result: Result
+    inference_prompt_tokens: List[int]
+    inference_prompt_len: int
+    enforced_tokens: List[int]
+    inference_model: ModelInfo
+    validation_model: ModelInfo
+    request_params: RequestParams
+
+
+def save_snapshots_to_jsonl(
+    snapshots: List["InferenceSnapshot"],
+    path: str,
+    append: bool = False,
+) -> None:
+    mode = 'a' if append else 'w'
+    with open(path, mode) as f:
+        for snap in snapshots:
+            f.write(snap.model_dump_json() + '\n')
+
+
+def load_snapshots_from_jsonl(
+    path: str,
+    n: int = None,
+) -> List["InferenceSnapshot"]:
+    k = n if n is not None else float('inf')
+    results = []
+    with open(path, 'r') as f:
+        for i, line in enumerate(f):
+            if i >= k:
+                break
+            line = line.strip()
+            if line:
+                results.append(InferenceSnapshot.model_validate_json(line))
+    return results
+
+
 def parse_gpu_count(gpu_spec: str) -> int:
     """Parse a GPU spec like '8xH100' or '1xA100' and return the leading count.
 

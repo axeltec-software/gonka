@@ -25,8 +25,9 @@ from validation.data import (
     RequestParams,
     ExperimentRequest,
     ValidationItem,
+    InferenceSnapshot,
     Result,
-    PositionResult
+    PositionResult,
 )
 
 from common.logger import create_logger
@@ -237,6 +238,95 @@ def generate_and_validate(
                     f.write(item.model_dump_json() + '\n')
             except Exception as e:
                 logger.error(f"Failed to write result to {experiment_request.output_path}: {e}")
+
+    return item
+
+
+def generate_inference_snapshot(
+    experiment_request: ExperimentRequest,
+    output_path: Optional[str] = None,
+) -> InferenceSnapshot:
+    """Run inference only and return a snapshot that can be used for validation later."""
+    inference_resp = inference(
+        experiment_request.inference_model,
+        experiment_request.request_params,
+        experiment_request.prompt,
+    )
+
+    inference_prompt_len = inference_resp["usage"]["prompt_tokens"]
+    inference_prompt_tokens = inference_resp["prompt_token_ids"]
+    inference_result = _extract_logprobs(inference_resp)
+    enforced_tokens = _extract_enforced_tokens(inference_resp)
+
+    snapshot = InferenceSnapshot(
+        prompt=experiment_request.prompt,
+        language=experiment_request.language,
+        inference_result=inference_result,
+        inference_prompt_tokens=inference_prompt_tokens,
+        inference_prompt_len=inference_prompt_len,
+        enforced_tokens=enforced_tokens.tokens,
+        inference_model=experiment_request.inference_model,
+        validation_model=experiment_request.validation_model,
+        request_params=experiment_request.request_params,
+    )
+
+    if output_path:
+        lock = _get_lock_for_path(output_path)
+        with lock:
+            try:
+                with open(output_path, 'a') as f:
+                    f.write(snapshot.model_dump_json() + '\n')
+            except Exception as e:
+                logger.error(f"Failed to write snapshot to {output_path}: {e}")
+
+    return snapshot
+
+
+def validate_from_snapshot(
+    snapshot: InferenceSnapshot,
+    output_path: Optional[str] = None,
+) -> ValidationItem:
+    """Run validation using a previously saved inference snapshot."""
+    validation_resp = validation(
+        snapshot.validation_model,
+        snapshot.request_params,
+        prompt_tokens=snapshot.inference_prompt_tokens,
+        enforced_tokens=snapshot.enforced_tokens,
+    )
+    validation_result = _extract_prompt_logprobs(validation_resp, snapshot.inference_prompt_len)
+
+    inference_tok_ids = [str(t) for t in snapshot.enforced_tokens]
+    validation_tok_ids = [
+        list(el.keys())[0]
+        for el in validation_resp["choices"][0]["prompt_logprobs"][snapshot.inference_prompt_len:]
+    ]
+    if inference_tok_ids != validation_tok_ids:
+        print(
+            f"token id sequences don't match\n"
+            f"inference:\n {inference_tok_ids}\n"
+            f"{'-'*10}\n"
+            f"validation:\n {validation_tok_ids}\n"
+            f"{'-'*100}"
+        )
+
+    item = ValidationItem(
+        prompt=snapshot.prompt,
+        language=snapshot.language,
+        inference_result=snapshot.inference_result,
+        validation_result=validation_result,
+        inference_model=snapshot.inference_model,
+        validation_model=snapshot.validation_model,
+        request_params=snapshot.request_params,
+    )
+
+    if output_path:
+        lock = _get_lock_for_path(output_path)
+        with lock:
+            try:
+                with open(output_path, 'a') as f:
+                    f.write(item.model_dump_json() + '\n')
+            except Exception as e:
+                logger.error(f"Failed to write result to {output_path}: {e}")
 
     return item
 

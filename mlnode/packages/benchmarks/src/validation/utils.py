@@ -179,7 +179,7 @@ class VLLMRequestWrapper_AppendEnforcedTokensInPayload(VLLMRequestWrapperBase):
         url = f"{model_info.url}/v1/completions"
         payload = {
             "model": model_info.name,
-            "prompt": prompt.tokens + enforced_tokens.tokens,
+            "prompt": prompt.tokens + enforced_tokens.as_token_ids_list(),
             "max_tokens": 1,
             "temperature": request_params.temperature,
             "seed": request_params.seed,
@@ -290,7 +290,7 @@ def generate_and_validate(
         return item
     
     except Exception as e:
-        logger.error(e)
+        logger.exception(e)
         raise
 
 

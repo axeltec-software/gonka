@@ -4,7 +4,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed
 )
-from validation.utils import generate_and_validate
+from validation.utils import generate_and_validate, VLLMRequestWrapper
 from validation.data import (
     ValidationItem,
     ModelInfo,
@@ -18,6 +18,7 @@ logger = create_logger(__name__)
 
 
 def run_validation(
+    req_wrapper: VLLMRequestWrapper,
     prompts: List[str],
     inference_model: ModelInfo,
     validation_model: ModelInfo,
@@ -34,6 +35,7 @@ def run_validation(
         lang = languages[idx] if languages is not None else None
         args.append(
             ExperimentRequest(
+                req_wrapper=req_wrapper,
                 prompt=prompt,
                 language=lang,
                 inference_model=inference_model,

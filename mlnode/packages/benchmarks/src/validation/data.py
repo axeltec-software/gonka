@@ -4,6 +4,7 @@ from pydantic import (
     model_validator,
 )
 from typing import (
+    Any,
     List,
     Dict,
     Union,
@@ -31,6 +32,31 @@ class ModelInfo(BaseModel):
     deploy_params: Dict[str, str] = Field(default_factory=dict)
 
 
+class EnforcedToken(BaseModel):
+    token: str
+    top_tokens: List[str] = Field(default_factory=list)
+
+
+class EnforcedTokens(BaseModel):
+    tokens: List[EnforcedToken]
+
+    def as_token_ids_list(self) -> List[int]:
+        return [int(x.token) for x in self.tokens]
+
+
+class Prompt(BaseModel):
+    """ This class objects are generated on the basis of a string prompt, and then the corresponding token ids are generated if needed"""
+    string: str
+    tokens: List[int] = None
+
+    @classmethod
+    def from_string(cls, string: str) -> "Prompt":
+        return cls(string=string)
+    
+    def set_tokens(self, tokens: List[int]) -> "Prompt":
+        self.tokens = tokens
+
+
 class RequestParams(BaseModel):
     max_tokens: int
     temperature: float
@@ -42,7 +68,39 @@ class RequestParams(BaseModel):
     retries_max_attempts: int = 3
     retry_backoff_seconds_start: float = 1.0
     retry_backoff_multiplier: float = 2.0
+    
 
+class VLLMRequestWrapper(BaseModel):
+    def inference(self,
+        model_info: ModelInfo,
+        request_params: RequestParams,
+        prompt: Prompt
+    ) -> Dict[str, Any]:
+        raise NotImplementedError("Not implemented")
+    
+    def validation(self,
+        model_info: ModelInfo,
+        request_params: RequestParams,
+        prompt: Prompt,
+        enforced_tokens: Optional[EnforcedTokens] = None
+    ) -> Dict[str, Any]:
+        raise NotImplementedError("Not implemented")
+
+    @staticmethod
+    def validation_response_to_logprobs_val(resp: Dict[str, Any], prompt_len: int):
+        raise NotImplementedError("Not implemented")
+
+    @staticmethod
+    def _extract_logprob_token(s: str) -> str:
+        raise NotImplementedError("Not implemented")
+
+    @classmethod
+    def _extract_logprobs(cls, resp) -> Result:
+        raise NotImplementedError("Not implemented")
+
+    @classmethod
+    def EnforcedTokens_from_content(cls, content: List[Dict[str, Any]]) -> "EnforcedTokens":
+        raise NotImplementedError("Not implemented")
 
 class ValidationItem(BaseModel):
     prompt: str
@@ -58,6 +116,7 @@ class ValidationItem(BaseModel):
 
 
 class ExperimentRequest(BaseModel):
+    req_wrapper: VLLMRequestWrapper
     prompt: str
     language: Optional[str] = None
     inference_model: ModelInfo

@@ -25,7 +25,7 @@ from validation.model_presets import QWEN3_600M_FP8, QWEN3_600M_FP16, QWQ_32B_FP
 
 logger = create_logger(__name__)
     
-N_PROMPTS = 10
+N_PROMPTS = 100
 MAX_WORKERS = None
 CONNECTION_ERROR_WAIT_TIME = 120  # seconds to wait after connection error
 run_params_high_temp = RunParams(
@@ -34,7 +34,7 @@ run_params_high_temp = RunParams(
     n_prompts=N_PROMPTS,
     timeout=1800,
     request=RequestParams(
-        max_tokens=300,
+        max_tokens=3000,
         temperature=0.99,
         seed=42,
         top_logprobs=4,
@@ -110,7 +110,7 @@ langs = ("en", "sp","ch", "hi", "ar")
 runs = [
     # Honest FP8 on 1xH100 vs FP8 on 1xH100
     InferenceValidationRun(
-        model_inference=honest_preset,
+        model_inference=fraudulent_preset,
         model_validation=honest_preset,
         server_inference=server_0_3xRTX4000_1,
         server_validation=server_0_3xRTX4000_2,
@@ -233,7 +233,7 @@ class InferenceRequest:
 
 class InferenceResponse:
     """Stores the response from inference server"""
-    def __init__(self, prompt: str, language: Optional[str], idx: int, prompt_len: int, 
+    def __init__(self, prompt: Prompt, language: Optional[str], idx: int, prompt_len: int, 
                  inference_text: str, inference_result: dict, enforced_tokens: dict):
         self.prompt = prompt
         self.language = language
@@ -245,7 +245,7 @@ class InferenceResponse:
     
     def to_dict(self):
         return {
-            'prompt': self.prompt,
+            'prompt': json.loads(self.prompt.model_dump_json()),
             'language': self.language,
             'idx': self.idx,
             'prompt_len': self.prompt_len,
@@ -257,7 +257,7 @@ class InferenceResponse:
     @classmethod
     def from_dict(cls, data: dict):
         return cls(
-            prompt=data['prompt'],
+            prompt=Prompt.model_validate_json(json.dumps(data['prompt'])),
             language=data.get('language'),
             idx=data['idx'],
             prompt_len=data['prompt_len'],
@@ -302,8 +302,11 @@ def run_inference_only(
             enforced_tokens = req_wrapper._extract_enforced_tokens(inference_resp)
             prompt_len = int(inference_resp["usage"]["prompt_tokens"])
             
+
+            req.prompt.set_tokens(inference_resp["prompt_token_ids"])
+
             res = InferenceResponse(
-                prompt=req.prompt.string,
+                prompt=req.prompt,
                 language=req.language,
                 idx=req.idx,
                 prompt_len=prompt_len,
@@ -372,12 +375,11 @@ def run_validation_only(
                 req_wrapper,
                 validation_model,
                 request_params,
-                Prompt.from_string(inf_resp.prompt),
+                inf_resp.prompt,
                 enforced_tokens=enforced_tokens,
                 max_retries=max_retries,
                 wait_time=wait_time
             )
-            #validation_result = _extract_logprobs(validation_resp)
             prompt_len = inf_resp.prompt_len
 
             logprobs_val = req_wrapper.validation_response_to_logprobs_val(validation_resp, prompt_len)
@@ -389,8 +391,7 @@ def run_validation_only(
             inference_tok_ids = [el['token'] for el in inf_resp.enforced_tokens["tokens"]]
             validation_tok_ids = [list(el.keys())[0] for el in req_wrapper.validation_response_to_logprobs_val(validation_resp, prompt_len)]
             
-            # Check if texts match
-            #if validation_result.text != inference_result.text:
+            # Check if token ids match
             if inference_tok_ids != validation_tok_ids:
                 raise RuntimeError(
                     f"token id sequences don't match\n" +

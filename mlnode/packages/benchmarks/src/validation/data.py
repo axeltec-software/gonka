@@ -12,7 +12,7 @@ from typing import (
 )
 import copy
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple
 
 
@@ -47,14 +47,17 @@ class EnforcedTokens(BaseModel):
 class Prompt(BaseModel):
     """ This class objects are generated on the basis of a string prompt, and then the corresponding token ids are generated if needed"""
     string: str
-    tokens: List[int] = None
+    tokens: List[int] = []
 
     @classmethod
     def from_string(cls, string: str) -> "Prompt":
-        return cls(string=string)
+        return cls(string=string, tokens=[])
     
     def set_tokens(self, tokens: List[int]) -> "Prompt":
-        self.tokens = tokens
+        if tokens is None:
+            self.tokens = []
+        else:
+            self.tokens = tokens
 
 
 class RequestParams(BaseModel):
@@ -103,7 +106,7 @@ class VLLMRequestWrapper(BaseModel):
         raise NotImplementedError("Not implemented")
 
 class ValidationItem(BaseModel):
-    prompt: str
+    prompt: Prompt
     language: Optional[str] = None
     inference_result: Result
     validation_result: Result
@@ -126,7 +129,7 @@ class ExperimentRequest(BaseModel):
 
     def to_result(self, inference_result: Result, validation_result: Result) -> ValidationItem:
         return ValidationItem(
-            prompt=self.prompt,
+            prompt=Prompt.from_string(self.prompt),
             language=self.language,
             inference_result=inference_result,
             validation_result=validation_result,
@@ -281,6 +284,7 @@ class InferenceValidationRun(BaseModel):
     def setting_filename(self) -> str:
         inf_model_name = f"{self.model_inference.model.split('/')[-1]}-{self.model_inference.precision}-{self.server_inference.gpu}"
         val_model_name = f"{self.model_validation.model.split('/')[-1]}-{self.model_validation.precision}-{self.server_validation.gpu}"
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        #timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H:%M:%S.%f')[:-3]
         return f"{inf_model_name}___{val_model_name}__{self.run_inference.exp_name}__{timestamp}.jsonl"
 

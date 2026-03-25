@@ -106,8 +106,7 @@ class VLLMRequestWrapper_AppendEnforcedTokensInVLLM(VLLMRequestWrapperBase):
     ) -> Dict[str, Any]:
         
         assert(prompt.string)
-        #assert(isinstance(enforced_tokens.tokens, list) and all(isinstance(x, EnforcedToken) for x in enforced_tokens.tokens), "Enforced tokens have to be EnforcedToken-item")
-
+        
         url = f"{model_info.url}/v1/chat/completions"
         payload = {
             "model": model_info.name,
@@ -175,7 +174,7 @@ class VLLMRequestWrapper_AppendEnforcedTokensInPayload(VLLMRequestWrapperBase):
     ) -> Dict[str, Any]:
 
         assert(prompt.tokens)
-        #assert(isinstance(enforced_tokens.tokens, list) and all(isinstance(x, int) for x in enforced_tokens.tokens), "Enforced tokens have to be int-item")
+        
         url = f"{model_info.url}/v1/completions"
         payload = {
             "model": model_info.name,

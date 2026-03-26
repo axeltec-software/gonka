@@ -19,7 +19,7 @@ from tqdm import tqdm
 from validation.runner import run_validation
 from validation.prompts import preload_all_language_prompts, slice_mixed_language_prompts_with_langs
 from validation.data import *
-from validation.utils import VLLMRequestWrapper, VLLMRequestWrapper_AppendEnforcedTokensInVLLM, VLLMRequestWrapper_AppendEnforcedTokensInPayload, _extract_prompt_logprobs
+from validation.utils import VLLMRequestWrapper_AppendEnforcedTokensInVLLM, VLLMRequestWrapper_AppendEnforcedTokensInPayload, _extract_prompt_logprobs
 from common.logger import create_logger
 from validation.model_presets import QWEN3_600M_FP8, QWEN3_600M_FP16, QWQ_32B_FP8, QWQ_32B_INT4, QWEN3_30B_FP8, QWEN3_30B_INT4
 
@@ -221,24 +221,6 @@ def validation_with_retry(req_wrapper: VLLMRequestWrapper, model_info: ModelInfo
             logger.error(f"Unexpected error during validation: {e}")
             raise
     raise RuntimeError(f"Failed to complete validation after {max_retries} attempts")
-
-
-class InferenceRequest(BaseModel):
-    """Stores a single inference request"""
-    prompt: Prompt
-    language: str
-    idx: int
-
-
-class InferenceResponse(BaseModel):
-    """Stores the response from inference server"""
-    prompt: Prompt
-    language: str
-    idx: int
-    prompt_len: int
-    inference_text: str
-    inference_result: Result
-    enforced_tokens: EnforcedTokens
 
 
 def run_inference_only(

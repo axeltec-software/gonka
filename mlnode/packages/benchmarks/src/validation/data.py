@@ -73,6 +73,24 @@ class RequestParams(BaseModel):
     retry_backoff_multiplier: float = 2.0
     
 
+class InferenceRequest(BaseModel):
+    """Stores a single inference request"""
+    prompt: Prompt
+    language: str
+    idx: int
+
+
+class InferenceResponse(BaseModel):
+    """Stores the response from inference server"""
+    prompt: Prompt
+    language: str
+    idx: int
+    prompt_len: int
+    inference_text: str
+    inference_result: Result
+    enforced_tokens: EnforcedTokens
+
+
 class VLLMRequestWrapper(BaseModel):
     def inference(self,
         model_info: ModelInfo,
@@ -104,6 +122,7 @@ class VLLMRequestWrapper(BaseModel):
     @classmethod
     def EnforcedTokens_from_content(cls, content: List[Dict[str, Any]]) -> "EnforcedTokens":
         raise NotImplementedError("Not implemented")
+
 
 class ValidationItem(BaseModel):
     prompt: Prompt

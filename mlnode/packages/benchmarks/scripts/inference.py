@@ -110,7 +110,7 @@ langs = ("en", "sp","ch", "hi", "ar")
 runs = [
     # Honest FP8 on 1xH100 vs FP8 on 1xH100
     InferenceValidationRun(
-        model_inference=fraudulent_preset,
+        model_inference=honest_preset,
         model_validation=honest_preset,
         server_inference=server_0_3xRTX4000_1,
         server_validation=server_0_3xRTX4000_2,
@@ -223,48 +223,22 @@ def validation_with_retry(req_wrapper: VLLMRequestWrapper, model_info: ModelInfo
     raise RuntimeError(f"Failed to complete validation after {max_retries} attempts")
 
 
-class InferenceRequest:
+class InferenceRequest(BaseModel):
     """Stores a single inference request"""
-    def __init__(self, prompt: Prompt, language: Optional[str], idx: int):
-        self.prompt = prompt
-        self.language = language
-        self.idx = idx
+    prompt: Prompt
+    language: str
+    idx: int
 
 
-class InferenceResponse:
+class InferenceResponse(BaseModel):
     """Stores the response from inference server"""
-    def __init__(self, prompt: Prompt, language: Optional[str], idx: int, prompt_len: int, 
-                 inference_text: str, inference_result: dict, enforced_tokens: dict):
-        self.prompt = prompt
-        self.language = language
-        self.idx = idx
-        self.prompt_len=prompt_len
-        self.inference_text = inference_text
-        self.inference_result = inference_result
-        self.enforced_tokens = enforced_tokens
-    
-    def to_dict(self):
-        return {
-            'prompt': json.loads(self.prompt.model_dump_json()),
-            'language': self.language,
-            'idx': self.idx,
-            'prompt_len': self.prompt_len,
-            'inference_text': self.inference_text,
-            'inference_result': self.inference_result,
-            'enforced_tokens': self.enforced_tokens
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict):
-        return cls(
-            prompt=Prompt.model_validate_json(json.dumps(data['prompt'])),
-            language=data.get('language'),
-            idx=data['idx'],
-            prompt_len=data['prompt_len'],
-            inference_text=data['inference_text'],
-            inference_result=data['inference_result'],
-            enforced_tokens=data['enforced_tokens']
-        )
+    prompt: Prompt
+    language: str
+    idx: int
+    prompt_len: int
+    inference_text: str
+    inference_result: Result
+    enforced_tokens: EnforcedTokens
 
 
 def run_inference_only(
@@ -335,7 +309,7 @@ def run_inference_only(
     # Save to file
     with open(output_path, 'w') as f:
         for result in results:
-            f.write(json.dumps(result.to_dict()) + '\n')
+            f.write(result.model_dump_json() + '\n')
     
     logger.info(f"Saved {len(results)} inference responses to {output_path}")
     return results
@@ -359,8 +333,8 @@ def run_validation_only(
     inference_responses = []
     with open(inference_responses_path, 'r') as f:
         for line in f:
-            data = json.loads(line)
-            inference_responses.append(InferenceResponse.from_dict(data))
+            #data = json.loads(line)
+            inference_responses.append(InferenceResponse.model_validate_json(line))
     
     logger.info(f"Loaded {len(inference_responses)} inference responses")
     logger.info(f"Running validation on {len(inference_responses)} responses")
@@ -388,7 +362,7 @@ def run_validation_only(
             # Reconstruct inference result
             inference_result = Result.model_validate(inf_resp.inference_result)
 
-            inference_tok_ids = [el['token'] for el in inf_resp.enforced_tokens["tokens"]]
+            inference_tok_ids = [el.token for el in inf_resp.enforced_tokens.tokens]
             validation_tok_ids = [list(el.keys())[0] for el in req_wrapper.validation_response_to_logprobs_val(validation_resp, prompt_len)]
             
             # Check if token ids match

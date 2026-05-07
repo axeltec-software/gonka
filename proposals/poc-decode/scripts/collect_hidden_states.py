@@ -91,8 +91,8 @@ def send_batch(
             "model": model,
             "seq_len": seq_len,
             "k_dim": 12,
-            "max_tokens": max_tokens
         },
+        "max_tokens": max_tokens,
         "batch_size":   len(nonces),
         "debug": True,
         "wait": True,
@@ -115,8 +115,8 @@ def save_npz(
     arrays = dict(
         block_hashes=np.array(block_hashes, dtype=object),
         nonces=np.array(nonces, dtype=np.int64),
-        hidden_states=np.stack(hidden_states).astype(np.float32),
-        reduced_hidden_states=np.stack(reduced_hidden_states).astype(np.float32),
+        # hidden_states=np.stack(hidden_states).astype(np.float32),
+        # reduced_hidden_states=np.stack(reduced_hidden_states).astype(np.float32),
         sphere_k_steps=np.stack(sphere_k_steps).astype(np.int32),
     )
     if reduced_hidden_states_decode is not None:
@@ -225,12 +225,12 @@ def main() -> None:
             for artifact in artifacts:
                 nonce   = artifact.get("nonce")
                 hs_b64  = artifact.get("hidden_state_b64")
-                rhs_b64 = artifact.get("reduced_hidden_state_b64")
+                # rhs_b64 = artifact.get("reduced_hidden_state_b64")
 
-                if hs_b64 is None or rhs_b64 is None:
-                    print(f"  WARNING: nonce={nonce} missing hidden state fields"
-                          " (server may need restart)", file=sys.stderr)
-                    continue
+                # if hs_b64 is None or rhs_b64 is None:
+                #     print(f"  WARNING: nonce={nonce} missing hidden state fields"
+                #           " (server may need restart)", file=sys.stderr)
+                #     continue
 
                 # Decode sphere projections per decode step.
                 rhs_dec_b64: List[str] = artifact.get("sph_values_steps") or []
@@ -250,8 +250,8 @@ def main() -> None:
 
                 acc_block_hashes.append(block_hash)
                 acc_nonces.append(nonce)
-                acc_hidden_states.append(decode_vector(hs_b64))
-                acc_reduced_hidden_states.append(decode_vector(rhs_b64))
+                # acc_hidden_states.append(decode_vector(hs_b64))
+                # acc_reduced_hidden_states.append(decode_vector(rhs_b64))
                 acc_sphere_k_steps.append(np.array(k_steps, dtype=np.int32))
                 if save_decode:
                     dec_vecs = np.stack([decode_vector(b) for b in rhs_dec_b64])

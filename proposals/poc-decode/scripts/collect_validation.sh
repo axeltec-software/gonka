@@ -8,16 +8,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POC_DECODE_DIR="$(dirname "$SCRIPT_DIR")"
 
-NUM_HASHES=1
-NUM_NONCES=4
+NUM_HASHES=10
+NUM_NONCES=100
 MAX_TOKENS=256
 OUTPUT_DIR="$POC_DECODE_DIR/data/validation"
 
-HONEST_INFERENCE_URL="http://0.0.0.0:8000"
-HONEST_VALIDATION_URL="http://146.115.17.158:53301"
+HONEST_INFERENCE_URL="http://202.122.49.242:22255"
+HONEST_VALIDATION_URL="http://108.231.141.46:20018"
 
-FRAUD_INFERENCE_URL="http://146.115.17.158:15902"
-FRAUD_VALIDATION_URL="http://146.115.17.158:53301"
+FRAUD_INFERENCE_URL="http://202.122.49.242:22255"
+FRAUD_VALIDATION_URL="http://108.231.141.46:20018"
 
 if [[ $# -ne 1 ]] || [[ "$1" != "--honest" && "$1" != "--fraud" ]]; then
     echo "Usage: $0 --honest | --fraud" >&2

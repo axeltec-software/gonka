@@ -53,8 +53,8 @@ def send_inference_request(
             "model": model,
             "seq_len": seq_len,
             "k_dim": 12,
-            "max_tokens": max_tokens,
         },
+        "max_tokens": max_tokens,
         "wait": True,
     }
     resp = requests.post(url, json=payload, timeout=timeout)
@@ -87,8 +87,8 @@ def send_validation_request(
             "model": model,
             "seq_len": seq_len,
             "k_dim": 12,
-            "max_tokens": max_tokens,
         },
+        "max_tokens": max_tokens,
         "wait": True,
         "inference_k_points_steps": inference_sphere_k_steps,
     }

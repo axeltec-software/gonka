@@ -376,9 +376,151 @@ class TestStatusAggregation:
         
         with patch('api.proxy.vllm_client') as mock_client:
             mock_client.get = AsyncMock(side_effect=mock_get)
-            
+
             response = client.get("/api/v1/inference/pow/status")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "GENERATING"
+
+
+class TestDecodePoCInterface:
+    """The v2 proxy must carry decode-PoC params/trajectory through to vLLM, while
+    the old prefill-only path (max_tokens absent) keeps working unchanged."""
+
+    @patch('api.proxy.vllm_backend_ports', [5001])
+    @patch('api.proxy.vllm_healthy', {5001: True})
+    @patch('api.proxy.pow_generate_rr_index', 0)
+    def test_generate_forwards_max_tokens(self, client):
+        """max_tokens in params must reach the vllm backend (drives decode)."""
+        captured = []
+
+        async def mock_post(url, json=None, timeout=None):
+            captured.append(json)
+            return make_mock_response(200, {"status": "completed", "request_id": "u", "artifacts": []})
+
+        with patch('api.proxy.vllm_client') as mock_client:
+            mock_client.post = AsyncMock(side_effect=mock_post)
+            response = client.post("/api/v1/inference/pow/generate", json={
+                "block_hash": "0xabc", "block_height": 1, "public_key": "pk",
+                "node_id": 0, "node_count": 1, "nonces": [0, 1],
+                "params": {"model": "m", "seq_len": 64, "max_tokens": 8},
+                "wait": True,
+            })
+
+        assert response.status_code == 200
+        assert len(captured) == 1
+        assert captured[0]["params"]["max_tokens"] == 8
+
+    @patch('api.proxy.vllm_backend_ports', [5001, 5002])
+    @patch('api.proxy.vllm_healthy', {5001: True, 5002: True})
+    @patch('api.proxy.vllm_counts', {5001: 0, 5002: 0})
+    @patch('api.proxy.poc_status_by_port', {5001: "IDLE", 5002: "IDLE"})
+    def test_init_generate_fanout_forwards_max_tokens(self, client):
+        """Decode params must survive the /init/generate fan-out to every backend."""
+        captured = []
+
+        async def mock_post(url, json=None, timeout=None):
+            captured.append(json)
+            return make_mock_response(200, {"status": "OK", "pow_status": {"status": "GENERATING"}})
+
+        with patch('api.proxy.vllm_client') as mock_client:
+            mock_client.post = AsyncMock(side_effect=mock_post)
+            response = client.post("/api/v1/inference/pow/init/generate", json={
+                "block_hash": "0xabc", "block_height": 1, "public_key": "pk",
+                "node_id": 0, "node_count": 1, "batch_size": 32,
+                "params": {"model": "m", "seq_len": 64, "max_tokens": 16},
+            })
+
+        assert response.status_code == 200
+        assert len(captured) == 2
+        assert all(c["params"]["max_tokens"] == 16 for c in captured)
+
+    @patch('api.proxy.vllm_backend_ports', [5001])
+    @patch('api.proxy.vllm_healthy', {5001: True})
+    @patch('api.proxy.pow_generate_rr_index', 0)
+    def test_generate_forwards_decode_validation_trajectory(self, client):
+        """Teacher-forced decode validation: reference k trajectory in artifacts and
+        enforced_k_steps must pass through to the backend verbatim."""
+        captured = []
+
+        async def mock_post(url, json=None, timeout=None):
+            captured.append(json)
+            return make_mock_response(200, {
+                "status": "completed", "n_mismatch": 0, "fraud_detected": False})
+
+        with patch('api.proxy.vllm_client') as mock_client:
+            mock_client.post = AsyncMock(side_effect=mock_post)
+            response = client.post("/api/v1/inference/pow/generate", json={
+                "block_hash": "0xabc", "block_height": 1, "public_key": "pk",
+                "node_id": 0, "node_count": 1, "nonces": [0],
+                "params": {"model": "m", "seq_len": 64, "max_tokens": 4},
+                "wait": True,
+                "validation": {"artifacts": [
+                    {"nonce": 0, "vector_b64": "AAAA",
+                     "k_points_steps": [3, 7, 1, 9], "n_sphere_mismatches": 0},
+                ]},
+                "enforced_k_steps": {"0": [3, 7, 1, 9]},
+            })
+
+        assert response.status_code == 200
+        assert len(captured) == 1
+        fwd = captured[0]
+        assert fwd["validation"]["artifacts"][0]["k_points_steps"] == [3, 7, 1, 9]
+        # model_dump() coerces the Dict[int, ...] key back to int; over the wire
+        # httpx serializes it to "0" and vllm coerces it back to int again.
+        assert fwd["enforced_k_steps"][0] == [3, 7, 1, 9]
+
+    @patch('api.proxy.vllm_backend_ports', [5001])
+    @patch('api.proxy.vllm_healthy', {5001: True})
+    @patch('api.proxy.pow_generate_rr_index', 0)
+    def test_generate_passes_decode_trajectory_response_back(self, client):
+        """Decode response fields (trajectory, mismatch count) flow back to caller."""
+        async def mock_post(url, json=None, timeout=None):
+            return make_mock_response(200, {
+                "status": "completed",
+                "artifacts": [{"nonce": 0, "vector_b64": "AAAA",
+                               "k_points_steps": [3, 7, 1, 9], "n_sphere_mismatches": 0}],
+            })
+
+        with patch('api.proxy.vllm_client') as mock_client:
+            mock_client.post = AsyncMock(side_effect=mock_post)
+            response = client.post("/api/v1/inference/pow/generate", json={
+                "block_hash": "0xabc", "block_height": 1, "public_key": "pk",
+                "node_id": 0, "node_count": 1, "nonces": [0],
+                "params": {"model": "m", "seq_len": 64, "max_tokens": 4},
+                "wait": True,
+            })
+
+        assert response.status_code == 200
+        art = response.json()["artifacts"][0]
+        assert art["k_points_steps"] == [3, 7, 1, 9]
+        assert art["n_sphere_mismatches"] == 0
+
+    @patch('api.proxy.vllm_backend_ports', [5001])
+    @patch('api.proxy.vllm_healthy', {5001: True})
+    @patch('api.proxy.pow_generate_rr_index', 0)
+    def test_prefill_coexists_defaults_max_tokens_zero(self, client):
+        """Old prefill caller (no max_tokens, bare artifacts) still works; the
+        forwarded payload carries max_tokens=0 (prefill-only)."""
+        captured = []
+
+        async def mock_post(url, json=None, timeout=None):
+            captured.append(json)
+            return make_mock_response(200, {"status": "completed", "n_mismatch": 0, "fraud_detected": False})
+
+        with patch('api.proxy.vllm_client') as mock_client:
+            mock_client.post = AsyncMock(side_effect=mock_post)
+            response = client.post("/api/v1/inference/pow/generate", json={
+                "block_hash": "0xabc", "block_height": 1, "public_key": "pk",
+                "node_id": 0, "node_count": 1, "nonces": [0],
+                "params": {"model": "m", "seq_len": 64},  # no max_tokens
+                "wait": True,
+                "validation": {"artifacts": [{"nonce": 0, "vector_b64": "AAAA"}]},  # bare
+            })
+
+        assert response.status_code == 200
+        fwd = captured[0]
+        assert fwd["params"]["max_tokens"] == 0
+        assert fwd["enforced_k_steps"] is None
+        assert fwd["validation"]["artifacts"][0]["k_points_steps"] is None

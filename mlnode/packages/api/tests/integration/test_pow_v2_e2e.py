@@ -608,8 +608,174 @@ class TestPoCv2FraudDetection:
         result = resp.json()
         
         print(f"Small perturbation result: {result}")
-        
+
         # Expect to pass (within tolerance)
         assert result["status"] == "completed"
         assert result["n_mismatch"] == 0, f"Expected 0 mismatches for small perturbation: {result}"
         assert result["fraud_detected"] == False, f"Expected fraud_detected=False: {result}"
+
+
+# Decode-PoC end-to-end: drives the v2 proxy with max_tokens>0 so vLLM produces a
+# k-trajectory (k_points_steps) artifact, then teacher-forced validation through the
+# same /inference/pow path. Prefill (max_tokens=0) must keep working on the same
+# backend (coexistence). Requires a decode-capable vLLM backend (--poc-decode).
+# 256 is the canonical PoC decode length; override smaller for fast local runs.
+DECODE_MAX_TOKENS = int(os.getenv("POC_DECODE_MAX_TOKENS", "256"))
+
+
+class TestPoCv2DecodeE2E:
+    """E2E for decode-PoC via the ML-node v2 proxy (trajectory + teacher-forced
+    validation), plus prefill coexistence on the same backend."""
+
+    @pytest.fixture(scope="class")
+    def decode_ctx(
+        self,
+        server_url: str,
+        vllm_url: str,
+        inference_client: InferenceClient,
+    ):
+        """Deploy a decode-capable PoC backend and synchronously generate decode
+        artifacts (with k_points_steps) for a fixed nonce set."""
+        requests.post(f"{server_url}/api/v1/stop")
+
+        date_str = datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
+        session_ids = {
+            "block_hash": hashlib.sha256(date_str.encode()).hexdigest(),
+            "block_height": 77777,
+            "public_key": f"decode_test_pubkey_{date_str}",
+        }
+        model_name = "Qwen/Qwen3-0.6B"
+        inference_client.inference_setup(
+            model=model_name,
+            dtype="bfloat16",
+            additional_args=[
+                "--max-model-len", "512",
+                "--gpu-memory-utilization", "0.8",
+                "--poc-decode",
+                "--no-async-scheduling",
+            ],
+        )
+        wait_for_server(f"{vllm_url}/health", timeout=300)
+        wait_for_server(f"{vllm_url}/v1/models", timeout=60)
+
+        nonces = list(range(8))
+        gen_payload = {
+            "block_hash": session_ids["block_hash"],
+            "block_height": session_ids["block_height"],
+            "public_key": session_ids["public_key"],
+            "node_id": 0, "node_count": 1, "nonces": nonces,
+            "params": {"model": model_name, "seq_len": 256, "k_dim": K_DIM,
+                       "max_tokens": DECODE_MAX_TOKENS},
+            "batch_size": 32, "wait": True,
+        }
+        resp = requests.post(f"{server_url}/api/v1/inference/pow/generate", json=gen_payload)
+        resp.raise_for_status()
+        artifacts = resp.json()["artifacts"]
+
+        yield {
+            "server_url": server_url, "model_name": model_name,
+            "session_ids": session_ids, "nonces": nonces, "artifacts": artifacts,
+        }
+        inference_client.inference_down()
+
+    def test_decode_artifacts_carry_trajectory(self, decode_ctx):
+        """Each decode artifact must carry a k_points_steps trajectory of length
+        max_tokens (the decode seal), not just a prefill vector."""
+        artifacts = decode_ctx["artifacts"]
+        assert len(artifacts) == len(decode_ctx["nonces"])
+        for a in artifacts:
+            traj = a.get("k_points_steps")
+            assert traj is not None, f"decode artifact missing k_points_steps: {a}"
+            # trajectory = prefill k0 + max_tokens decode steps = max_tokens + 1
+            assert len(traj) == DECODE_MAX_TOKENS + 1, f"trajectory len {len(traj)} != {DECODE_MAX_TOKENS + 1}"
+            # vector still present and well-formed
+            decode_artifact_vector(a["vector_b64"], K_DIM)
+
+    def test_decode_honest_validation_passes(self, decode_ctx):
+        """Teacher-forced validation of the prover's own decode artifacts (reference
+        trajectory fed back via enforced_k_steps) → honest, no fraud."""
+        ctx = decode_ctx
+        artifacts = ctx["artifacts"]
+        nonces = [a["nonce"] for a in artifacts]
+        inference_steps = {a["nonce"]: a["k_points_steps"] for a in artifacts}
+
+        payload = {
+            "block_hash": ctx["session_ids"]["block_hash"],
+            "block_height": ctx["session_ids"]["block_height"],
+            "public_key": ctx["session_ids"]["public_key"],
+            "node_id": 0, "node_count": 1, "nonces": nonces,
+            "params": {"model": ctx["model_name"], "seq_len": 256, "k_dim": K_DIM,
+                       "max_tokens": DECODE_MAX_TOKENS},
+            "batch_size": 32, "wait": True,
+            "validation": {"artifacts": artifacts},
+            "enforced_k_steps": inference_steps,
+            # decode uses the rate>p_mismatch rule; p_mismatch=0.1 is the chain
+            # default (honest step-rate is ~0, well under it).
+            "stat_test": {"dist_threshold": 0.02, "p_mismatch": 0.1, "fraud_threshold": 0.01},
+        }
+        resp = requests.post(f"{ctx['server_url']}/api/v1/inference/pow/generate", json=payload)
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"Decode honest validation: {result}")
+        assert result["status"] == "completed"
+        # the verdict (not the raw count) is the contract; for decode n_mismatch is
+        # the total sphere_k step-mismatch count, not #nonces.
+        assert result["fraud_detected"] == False, f"Fraud on honest decode node: {result}"
+
+    def test_decode_fraud_wrong_pubkey(self, decode_ctx):
+        """Validating decode artifacts under a different public_key reseeds the
+        trajectory → mismatches → fraud detected."""
+        ctx = decode_ctx
+        artifacts = ctx["artifacts"]
+        nonces = [a["nonce"] for a in artifacts]
+        inference_steps = {a["nonce"]: a["k_points_steps"] for a in artifacts}
+
+        payload = {
+            "block_hash": ctx["session_ids"]["block_hash"],
+            "block_height": ctx["session_ids"]["block_height"],
+            "public_key": "WRONG_PUBKEY_DECODE_FRAUD",
+            "node_id": 0, "node_count": 1, "nonces": nonces,
+            "params": {"model": ctx["model_name"], "seq_len": 256, "k_dim": K_DIM,
+                       "max_tokens": DECODE_MAX_TOKENS},
+            "batch_size": 32, "wait": True,
+            "validation": {"artifacts": artifacts},
+            "enforced_k_steps": inference_steps,
+            "stat_test": {"dist_threshold": 0.02, "p_mismatch": 0.1, "fraud_threshold": 0.01},
+        }
+        resp = requests.post(f"{ctx['server_url']}/api/v1/inference/pow/generate", json=payload)
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"Decode fraud (wrong pubkey): {result}")
+        assert result["status"] == "completed"
+        assert result["n_mismatch"] > 0, f"Expected mismatches with wrong pubkey: {result}"
+        assert result["fraud_detected"] == True, f"Expected fraud_detected=True: {result}"
+
+    def test_prefill_coexists_on_decode_backend(self, decode_ctx):
+        """A prefill-only request (max_tokens=0) must still produce a valid,
+        honest-validating artifact on the same decode-capable backend."""
+        ctx = decode_ctx
+        nonces = list(range(8))
+        gen = {
+            "block_hash": ctx["session_ids"]["block_hash"],
+            "block_height": ctx["session_ids"]["block_height"],
+            "public_key": ctx["session_ids"]["public_key"],
+            "node_id": 0, "node_count": 1, "nonces": nonces,
+            "params": {"model": ctx["model_name"], "seq_len": 256, "k_dim": K_DIM},  # max_tokens=0
+            "batch_size": 32, "wait": True,
+        }
+        resp = requests.post(f"{ctx['server_url']}/api/v1/inference/pow/generate", json=gen)
+        resp.raise_for_status()
+        artifacts = resp.json()["artifacts"]
+        assert len(artifacts) == len(nonces)
+        for a in artifacts:
+            assert a.get("k_points_steps") is None, "prefill artifact should have no trajectory"
+            decode_artifact_vector(a["vector_b64"], K_DIM)
+
+        val = {**gen, "validation": {"artifacts": artifacts},
+               "stat_test": {"dist_threshold": 0.02, "p_mismatch": 0.001, "fraud_threshold": 0.01}}
+        resp = requests.post(f"{ctx['server_url']}/api/v1/inference/pow/generate", json=val)
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"Prefill coexistence validation: {result}")
+        assert result["status"] == "completed"
+        assert result["fraud_detected"] == False, f"Prefill honest node flagged fraud: {result}"

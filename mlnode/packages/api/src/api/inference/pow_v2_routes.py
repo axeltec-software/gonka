@@ -1,6 +1,6 @@
 """PoC v2 routes for MLNode - proxies to vLLM PoC API with multi-backend support."""
 import asyncio
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -25,6 +25,7 @@ class PoCParamsModel(BaseModel):
     model: str
     seq_len: int
     k_dim: int = 12
+    max_tokens: int = 0   # decode steps after prefill (0 = prefill-only)
 
 
 class PoCInitGenerateRequest(BaseModel):
@@ -43,6 +44,9 @@ class PoCInitGenerateRequest(BaseModel):
 class ArtifactModel(BaseModel):
     nonce: int
     vector_b64: str
+    # decode-PoC trajectory (None for prefill-only artifacts)
+    k_points_steps: Optional[List[int]] = None
+    n_sphere_mismatches: Optional[int] = None
 
 
 class ValidationModel(BaseModel):
@@ -70,6 +74,8 @@ class PoCGenerateRequest(BaseModel):
     validation: Optional[ValidationModel] = None
     stat_test: Optional[StatTestModel] = None
     poc_stronger_rng: bool = False
+    # teacher-forced decode validation: reference k trajectory per nonce
+    enforced_k_steps: Optional[Dict[int, List[int]]] = None
 
 
 # Endpoints

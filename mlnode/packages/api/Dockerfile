@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.4
 ################################################################################
-FROM ghcr.io/gonka-ai/vllm:v0.15.1 AS base
+# vLLM base image: our v0.20 decode-PoC engine (torch 2.11 / cu128, sm_80/89/90).
+ARG VLLM_BASE=ghcr.io/axeltec-software/vllm:v0.20-decode-poc-cu128
+FROM ${VLLM_BASE} AS base
 
 RUN --mount=type=cache,target=/var/lib/apt/lists \
     --mount=type=cache,target=/root/.cache/pip \
@@ -33,6 +35,12 @@ ENV POETRY_VERSION=2.0.1 \
     POETRY_NO_INTERACTION=1 \
     DEBIAN_FRONTEND=noninteractive
 
+# Optional extra flash-attn wheel for the api venv. Empty by default: the v0.20 base
+# is torch 2.11 (the old torch2.9 wheel would be ABI-mismatched), mlnode python does
+# not import flash_attn, and the engine runs FlashInfer at runtime. Set a torch-2.11
+# wheel URL here only if a future need arises.
+ARG FLASH_ATTN_WHEEL=""
+
 RUN pip install --upgrade pip && \
     pip install "poetry==$POETRY_VERSION"
 
@@ -64,7 +72,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && . /app/packages/api/.venv/bin/activate \
     && cd /app/packages/api \
     && poetry install --no-interaction \
-    && pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.9cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+    && if [ -n "$FLASH_ATTN_WHEEL" ]; then pip install "$FLASH_ATTN_WHEEL"; fi
 
 ################################################################################
 FROM base AS app

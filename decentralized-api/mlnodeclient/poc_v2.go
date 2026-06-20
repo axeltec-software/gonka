@@ -4,9 +4,13 @@ package mlnodeclient
 // These match the schemas in mlnode/packages/api/tests/batch_receiver_v2.py.
 
 // ArtifactV2 represents a single artifact from PoC v2 generation.
+// Prefill PoC carries VectorB64; decode PoC carries the sphere_k trajectory
+// (KPointsSteps) and leaves VectorB64 empty. Exactly one is populated per artifact.
 type ArtifactV2 struct {
 	Nonce     int64  `json:"nonce"`
-	VectorB64 string `json:"vector_b64"` // base64-encoded fp16 little-endian vector
+	VectorB64 string `json:"vector_b64"` // base64-encoded fp16 little-endian vector (prefill)
+	// KPointsSteps is the decode-PoC sphere_k trajectory (nil for prefill artifacts).
+	KPointsSteps []int64 `json:"k_points_steps,omitempty"`
 }
 
 // EncodingV2 describes the artifact encoding (protocol-level defaults; informational only).

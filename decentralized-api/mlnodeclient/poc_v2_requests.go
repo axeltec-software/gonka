@@ -15,6 +15,9 @@ import (
 type PoCParamsV2 struct {
 	Model  string `json:"model"`
 	SeqLen int64  `json:"seq_len"`
+	// MaxTokens is the decode-PoC trajectory length (0 = prefill-only, the default).
+	// omitempty keeps the prefill request body byte-identical to before.
+	MaxTokens int64 `json:"max_tokens,omitempty"`
 	// k_dim is intentionally omitted - MLNode will use its default
 }
 
@@ -48,6 +51,10 @@ type PoCGenerateRequestV2 struct {
 	Validation     *ValidationV2     `json:"validation,omitempty"`
 	StatTest       *StatTestParamsV2 `json:"stat_test,omitempty"`
 	PocStrongerRng bool              `json:"poc_stronger_rng,omitempty"`
+	// EnforcedKSteps is the decode-PoC teacher-forced reference trajectory per nonce
+	// (nonce -> sphere_k steps). Set only for decode validation; nil for prefill and
+	// for generation. omitempty keeps prefill/generation bodies byte-identical.
+	EnforcedKSteps map[int64][]int64 `json:"enforced_k_steps,omitempty"`
 	// batch_size is intentionally omitted - MLNode will use its default
 }
 

@@ -212,6 +212,7 @@ type StartPoCNodeCommandV2 struct {
 	TotalNodes     int
 	Model          string
 	SeqLen         int64
+	MaxTokens      int64 // decode-PoC trajectory length (0 = prefill-only)
 	PocStrongerRng bool
 }
 
@@ -252,8 +253,9 @@ func (c StartPoCNodeCommandV2) Execute(ctx context.Context, worker *NodeWorker) 
 		NodeId:      int(worker.node.Node.NodeNum),
 		NodeCount:   c.TotalNodes,
 		Params: mlnodeclient.PoCParamsV2{
-			Model:  c.Model,
-			SeqLen: c.SeqLen,
+			Model:     c.Model,
+			SeqLen:    c.SeqLen,
+			MaxTokens: c.MaxTokens, // 0 unless decode-PoC is enabled (see broker.go)
 		},
 		URL:            c.CallbackUrl + "/" + encodeCallbackModelID(c.Model),
 		PocStrongerRng: c.PocStrongerRng,

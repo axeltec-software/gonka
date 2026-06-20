@@ -74,21 +74,23 @@ func (s *Server) postGeneratedArtifactsV2(ctx echo.Context) error {
 	// Convert artifacts from JSON format to proto format for local storage
 	protoArtifacts := make([]*types.PoCArtifactV2, 0, len(body.Artifacts))
 	for _, a := range body.Artifacts {
+		// Prefill artifacts carry vector_b64; decode artifacts carry k_points_steps
+		// (vector empty). poc.ArtifactToProto packs the trajectory into the opaque
+		// Vector field when present, else uses the prefill vector bytes (no proto
+		// change). The empty-both case is rejected inside the helper.
 		vectorBytes, err := base64.StdEncoding.DecodeString(a.VectorB64)
 		if err != nil {
 			logging.Error("ArtifactBatchV2-callback. Failed to decode artifact vector", types.PoC,
 				"nonce", a.Nonce, "error", err)
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid base64 in artifact vector")
 		}
-		if len(vectorBytes) == 0 {
-			logging.Error("ArtifactBatchV2-callback. Empty artifact vector", types.PoC,
-				"nonce", a.Nonce)
-			return echo.NewHTTPError(http.StatusBadRequest, "empty artifact vector")
+		protoArtifact, err := poc.ArtifactToProto(a.Nonce, vectorBytes, a.KPointsSteps)
+		if err != nil {
+			logging.Error("ArtifactBatchV2-callback. Invalid artifact", types.PoC,
+				"nonce", a.Nonce, "error", err)
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
-		protoArtifacts = append(protoArtifacts, &types.PoCArtifactV2{
-			Nonce:  int32(a.Nonce),
-			Vector: vectorBytes,
-		})
+		protoArtifacts = append(protoArtifacts, protoArtifact)
 	}
 
 	// Store artifacts locally for off-chain proofs

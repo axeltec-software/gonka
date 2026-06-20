@@ -1233,6 +1233,7 @@ func (b *Broker) getCommandForState(
 					TotalNodes:     totalNodes,
 					Model:          modelConfig.ModelId,
 					SeqLen:         modelConfig.SeqLen,
+					MaxTokens:      mlnodeclient.PoCDecodeGenMaxTokens(), // 0 unless decode-PoC enabled
 					PocStrongerRng: pocGenParams.pocStrongerRng,
 				}
 			}

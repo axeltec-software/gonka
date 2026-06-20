@@ -17,6 +17,7 @@ import (
 
 	"decentralized-api/cosmosclient"
 	"decentralized-api/logging"
+	"decentralized-api/mlnodeclient"
 	"decentralized-api/poc/artifacts"
 	"decentralized-api/utils"
 
@@ -188,9 +189,17 @@ func (c *ProofClient) FetchAndVerifyProofs(
 			return nil, fmt.Errorf("invalid vector_bytes encoding for leaf %d: %w", item.LeafIndex, err)
 		}
 
-		// Validate FP16 vector: must be exactly DefaultKDim values, no NaN/Infinity
-		if err := ValidateFP16Vector(vectorBytes, DefaultKDim); err != nil {
-			logging.Warn("Invalid FP16 vector data", types.PoC,
+		// Validate the leaf payload. Prefill: an FP16 vector (DefaultKDim values, no
+		// NaN/Inf). Decode (PoCDecodeEnabled): the Vector bytes are a packed sphere_k
+		// trajectory, not an FP16 vector, so validate it as a trajectory instead.
+		var vErr error
+		if mlnodeclient.PoCDecodeEnabled {
+			_, vErr = unpackTrajectory(vectorBytes)
+		} else {
+			vErr = ValidateFP16Vector(vectorBytes, DefaultKDim)
+		}
+		if err := vErr; err != nil {
+			logging.Warn("Invalid PoC artifact leaf data", types.PoC,
 				"participant", req.ParticipantAddress, "leafIndex", item.LeafIndex, "error", err)
 			return nil, fmt.Errorf("%w: leaf %d: %v", ErrInvalidVectorData, item.LeafIndex, err)
 		}

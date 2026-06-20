@@ -3,6 +3,7 @@ package poc
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -618,12 +619,41 @@ func (v *OffChainValidator) validateParticipant(
 			Model:  modelConfig.ModelId,
 			SeqLen: modelConfig.SeqLen,
 		},
-		URL: validationCallbackUrl,
-		Validation: &mlnodeclient.ValidationV2{
-			Artifacts: artifacts,
-		},
+		URL:            validationCallbackUrl,
 		StatTest:       mlnodeclient.StatTestParamsFromChain(modelConfig.StatTest),
 		PocStrongerRng: pocParams.PocStrongerRngEnabled,
+	}
+	if mlnodeclient.PoCDecodeEnabled {
+		// Decode-PoC: teacher-force against each nonce's reference trajectory (unpacked
+		// from the artifact Vector). max_tokens is DERIVED from the reference length, so
+		// no separate consensus param is needed. Do NOT send Validation.Artifacts —
+		// decode scores on enforced_k_steps, not vector distance.
+		enforced := make(map[int64][]int64, len(verified))
+		maxTokens := 0
+		for _, a := range verified {
+			vb, decErr := base64.StdEncoding.DecodeString(a.VectorB64)
+			if decErr != nil {
+				logging.Error("OffChainValidator: bad decode artifact base64", types.PoC,
+					"participant", work.address, "nonce", a.Nonce, "error", decErr)
+				return validateFailPermanent
+			}
+			kpoints, upErr := unpackTrajectory(vb)
+			if upErr != nil {
+				logging.Error("OffChainValidator: invalid decode trajectory", types.PoC,
+					"participant", work.address, "nonce", a.Nonce, "error", upErr)
+				return validateFailPermanent
+			}
+			enforced[int64(a.Nonce)] = kpoints
+			if len(kpoints)-1 > maxTokens {
+				maxTokens = len(kpoints) - 1 // trajectory = prefill k0 + max_tokens steps
+			}
+		}
+		validationReq.Params.MaxTokens = int64(maxTokens)
+		validationReq.EnforcedKSteps = enforced
+	} else {
+		validationReq.Validation = &mlnodeclient.ValidationV2{
+			Artifacts: artifacts,
+		}
 	}
 
 	// Try sending to ML node (single attempt per call - retries handled by queue)

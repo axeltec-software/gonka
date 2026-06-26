@@ -322,12 +322,22 @@ def main() -> None:
         prompt_elapsed = time.monotonic() - t0
         think_pos = prompt.find("<think>")
         text_start = think_pos if think_pos != -1 else len(prompt)
-        inference_result = _extract_prefill_logprobs(resp, prompt, text_start)#, include_token_str=not args.no_token_str)
-        if len(inference_result.results) > request_params.max_tokens:
-            inference_result = Result(
-                text=inference_result.text,
-                results=inference_result.results[:request_params.max_tokens],
+        inference_result = _extract_prefill_logprobs(resp, prompt, text_start, max_tokens=request_params.max_tokens)#, include_token_str=not args.no_token_str)
+        # Detokenize the actual token ID sequence for accurate text reconstruction.
+        # Concatenating decoded_token strings fails when a token is not in the top-k
+        # (decoded_token is None) or when multi-byte UTF-8 chars are split across tokens.
+        _STOP_IDS = {151645, 151643}  # <|im_end|>, <|endoftext|>
+        content_ids = [int(r.token) for r in inference_result.results if int(r.token) not in _STOP_IDS]
+        try:
+            detok_resp = requests.post(
+                f"{model_info.url.rstrip('/')}/detokenize",
+                json={"model": model_info.name, "tokens": content_ids},
+                timeout=10,
             )
+            if detok_resp.status_code == 200:
+                inference_result = Result(text=detok_resp.json().get("prompt", inference_result.text), results=inference_result.results)
+        except Exception:
+            pass  # keep the decoded_parts text as fallback
         n_tokens = len(inference_result.results)
         row = InferenceArtifactItem(
             prompt=prompt[:text_start],

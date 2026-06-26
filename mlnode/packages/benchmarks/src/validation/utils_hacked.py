@@ -223,6 +223,7 @@ def _extract_prefill_logprobs(
     resp: Dict[str, Any],
     prompt: str,
     text_start: int = 0,
+    max_tokens: Optional[int] = None,
     #include_token_str: bool = True,
 ) -> Result:
     """Build Results from prompt_logprobs, starting from the '<think>' token (151667)."""
@@ -275,6 +276,8 @@ def _extract_prefill_logprobs(
     results = []
     decoded_parts: List[str] = []
     for j, entry in enumerate(prompt_lps[start_idx:]):
+        if max_tokens is not None and len(results) >= max_tokens:
+            break
         actual_idx = start_idx + j
         if actual_idx >= len(prompt_ids):
             break

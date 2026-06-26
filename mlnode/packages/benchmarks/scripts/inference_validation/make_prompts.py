@@ -1,8 +1,8 @@
 import json
 import sys
 
-INPUT = "mlnode/packages/benchmarks/data/experiments/inference_fraud_Qwen600M-fp8/inference_results.jsonl"
-OUTPUT = "mlnode/packages/benchmarks/data/experiments/inference_fraud_Qwen600M-fp8/prompts.txt"
+INPUT = "mlnode/packages/benchmarks/data/experiments/final_version/inference_fraud_fp8_hack/inference_results.jsonl"
+OUTPUT = "mlnode/packages/benchmarks/data/experiments/final_version/inference_fraud_fp8_hack/prompts.txt"
 
 
 def main():

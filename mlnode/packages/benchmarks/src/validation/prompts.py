@@ -106,7 +106,7 @@ def slice_mixed_language_prompts_with_langs(
 
 
 def get_squad_data_questions() -> List[str]:
-    dataset = load_dataset('squad', keep_in_memory=True)
+    dataset = load_dataset('rajpurkar/squad', keep_in_memory=True)
     prompts = [
         f"Context: {context}\nQuestion: {question}"
         for question, context in zip(dataset['train']['question'], dataset['train']['context'])

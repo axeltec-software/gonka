@@ -14,6 +14,7 @@ import pandas as pd
 class PositionResult(BaseModel):
     token: str
     logprobs: Dict[str, float]
+    #token_str: Optional[str] = None
 
 
 class Result(BaseModel):

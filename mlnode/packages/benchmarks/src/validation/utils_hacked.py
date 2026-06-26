@@ -1,5 +1,3 @@
-import sys
-
 import requests
 import math
 import threading
@@ -160,6 +158,161 @@ def _extract_logprobs(resp) -> Result:
     return Result(text=text, results=results)
 
 
+def inference_prefill(
+    model_info: ModelInfo,
+    request_params: RequestParams,
+    prompt: str,
+) -> Dict[str, Any]:
+    """Score prompt tokens via /v1/chat/completions with a prefilled assistant message.
+
+    Splits prompt at '<think>': everything before becomes the user message,
+    everything from '<think>' onwards becomes the prefilled assistant content.
+    Uses prompt_logprobs so the server returns per-position logprobs for every
+    token in the formatted prompt (including the inference-result tokens).
+    This ensures '<think>' is tokenised as its special token (151667), not split
+    into character-level tokens as it would be in the raw completions endpoint.
+    """
+    think_pos = prompt.find("<think>")
+    user_content = prompt[:think_pos] if think_pos != -1 else prompt
+    assistant_content = prompt[think_pos:] if think_pos != -1 else ""
+
+    url = f"{model_info.url.rstrip('/')}/v1/chat/completions"
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": "You are a helpful assistant. Response clear, correct and complete."},
+        {"role": "user", "content": user_content},
+    ]
+    if assistant_content:
+        messages.append({"role": "assistant", "content": assistant_content})
+
+    payload: Dict[str, Any] = {
+        "model": model_info.name,
+        "messages": messages,
+        "max_tokens": 1,
+        "temperature": 0.0, #request_params.temperature,
+        "top_p": 1.0, #request_params.top_p,
+        "top_k": -1, #request_params.top_k,
+        "seed": request_params.seed,
+        "stream": False,
+        "logprobs": True,
+        "top_logprobs": request_params.top_logprobs,
+        "n": 1,
+        "skip_special_tokens": False,
+        "add_generation_prompt": False,
+        "prompt_logprobs": request_params.top_logprobs,
+        "return_token_ids": True
+    }
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Prefill inference request failed with status {response.status_code}: {response.text[:2000]}"
+        )
+    resp = response.json()
+    if "choices" not in resp:
+        raise RuntimeError(
+            f"/v1/chat/completions returned 200 but missing 'choices'. Response: {response.text[:2000]}"
+        )
+    if "prompt_logprobs" not in resp:
+        raise RuntimeError(
+            f"/v1/chat/completions returned 200 but missing 'prompt_logprobs'. "
+            f"Keys present: {list(resp.keys())}. Response: {str(resp)[:2000]}"
+        )
+    return resp
+
+
+def _extract_prefill_logprobs(
+    resp: Dict[str, Any],
+    prompt: str,
+    text_start: int = 0,
+    #include_token_str: bool = True,
+) -> Result:
+    """Build Results from prompt_logprobs, starting from the '<think>' token (151667)."""
+    import sys
+
+    prompt_lps: List[Optional[Dict]] = resp["prompt_logprobs"]
+    # prompt_lps_orig = prompt_lps
+    # from collections import OrderedDict
+    # for tok in prompt_lps:
+    #     if tok is not None and isinstance(tok, dict):
+    #         tok_ord = OrderedDict(tok)
+    #         tok = tok_ord
+
+    _THINK_TOKEN = "151667"
+
+    # def first(s):
+    #     '''Return the first element from an ordered collection
+    #     or an arbitrary element from an unordered collection.
+    #     Raise StopIteration if the collection is empty.
+    #     '''
+    #     return next(iter(s))
+    
+    prompt_ids = resp["prompt_token_ids"]
+
+    # start_idx = next(
+    #     (
+    #         i for i, entry in enumerate(prompt_lps)
+    #         if isinstance(entry, dict) and _THINK_TOKEN in first(entry)
+    #     ),
+    #     None,
+    # )
+
+    for tok in prompt_ids:
+        if tok == int(_THINK_TOKEN):
+            start_idx = prompt_ids.index(tok)
+            break
+
+    if start_idx is None:
+        non_null = [e for e in prompt_lps if e is not None]
+        print(
+            f"[DEBUG] <think> token ({_THINK_TOKEN}) not found in prompt_logprobs. "
+            f"Total entries: {len(prompt_lps)}, non-null: {len(non_null)}. "
+            f"First 3 non-null: {non_null[:3]}",
+            file=sys.stderr,
+        )
+        return Result(text=prompt[text_start:], results=[])
+
+    _STOP_TOKEN_IDS = {"151645", "151643"}  # <|im_end|>, <|endoftext|>
+
+    results = []
+    decoded_parts: List[str] = []
+    for j, entry in enumerate(prompt_lps[start_idx:]):
+        actual_idx = start_idx + j
+        if actual_idx >= len(prompt_ids):
+            break
+        actual_token = str(prompt_ids[actual_idx])
+        if not isinstance(entry, dict):
+            results.append(PositionResult(token=actual_token, logprobs={}))
+            if actual_token in _STOP_TOKEN_IDS:
+                break
+            continue
+        chosen_decoded: Optional[str] = None
+        lp_map: Dict[str, float] = {}
+        for tok_str, info in entry.items():
+            if isinstance(info, dict):
+                lp = info.get("logprob", 0.0)
+                lp_map[tok_str] = lp
+                if tok_str == actual_token:
+                    chosen_decoded = info.get("decoded_token")
+            elif isinstance(info, (int, float)):
+                lp_map[tok_str] = float(info)
+        # if chosen_decoded is not None:
+        #     print(
+        #     f"chosen_decoded: {chosen_decoded}, actual_token: {actual_token}",
+        #     file=sys.stderr,
+        # )
+        results.append(PositionResult(
+            token=actual_token,
+            logprobs=lp_map,
+            #token_str=chosen_decoded if include_token_str else None,
+        ))
+        if actual_token in _STOP_TOKEN_IDS:
+            break
+        if chosen_decoded is not None:
+            decoded_parts.append(chosen_decoded)
+
+    text = "".join(decoded_parts) if decoded_parts else prompt[text_start:]
+    return Result(text=text, results=results)
+
+
 def _extract_enforced_tokens(resp) -> EnforcedTokens:
     return EnforcedTokens.from_content(resp["choices"][0]["logprobs"]["content"])
 
@@ -222,20 +375,13 @@ def _check_match(
     val_result: Result,
 ):
     if [r.token for r in inf_result.results] != [r.token for r in val_result.results]:
-        print(f"Results mismatch: inference text\n'{inf_result.text}'\nvalidation text '{val_result.text}'", file=sys.stderr)
-        #logger.debug(
-        #     f"tokens sequences don't match\n" +
-        #     f"inference:\n {[r.token for r in inf_result.results]}\n" +
-        #     f"{'-'*10}\n" +
-        #     f"validation:\n {[r.token for r in val_result.results]}\n" +
-        #     f"{'-'*100}"
-        # )
-        if len(inf_result.results) != len(val_result.results):
-            print(f"Results length mismatch: inference {len(inf_result.results)} vs validation {len(val_result.results)}", file=sys.stderr)
-
-        for i, (inf_pos, val_pos) in enumerate(zip(inf_result.results, val_result.results)):
-            if inf_pos.token != val_pos.token:
-                print(f"Token mismatch at position {i}: inference token '{inf_pos.token}' vs validation token '{val_pos.token}'", file=sys.stderr)
+        logger.debug(
+            f"tokens sequences don't match\n" +
+            f"inference:\n {[r.token for r in inf_result.results]}\n" +
+            f"{'-'*10}\n" +
+            f"validation:\n {[r.token for r in val_result.results]}\n" +
+            f"{'-'*100}"
+        )
         return False
     return True
 

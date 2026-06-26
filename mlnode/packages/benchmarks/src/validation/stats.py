@@ -104,7 +104,7 @@ def fit_and_report(data: Sequence[float], dist_name: str = "normal") -> FittedDi
 
     if dist_name == "normal":
         mu, sigma = st.norm.fit(arr)
-        ks_stat, p_val = st.kstest(arr, "norm", args=(mu, sigma))
+        ks_stat, p_val = st.kstest(arr, "norm")#, args=(mu, sigma))
         print(f"Fitted Normal Params: mu={mu:.4f}, sigma={sigma:.4f}")
         print(f"KS test: statistic={ks_stat:.4f}, p-value={p_val:.4f}")
         return FittedDistribution(dist_name="normal", ks_stat=ks_stat, p_val=p_val, fit_params=(mu, sigma))
